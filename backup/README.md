@@ -66,17 +66,55 @@ Create a Kubernetes Secret to store your AWS key and secret from the access key 
    kubectl create secret generic aws-credentials --from-literal=key=YOUR_AWS_KEY --from-literal=secret=YOUR_AWS_SECRET
 ```
 
-# Configure Elasticsearch
+# Configure Elasticsearch S3 Plugin and Client
+
+## Create Secret
+
+Create a k8s secret containing your S3 bucket client id and secret: 
+
+```
+kubectl create secret generic aws-credentials  \
+ --from-literal=key=xxx \
+ --from-literal=secret=xxx
+```
+
+## Configure ES to know how to communicate with S3
 
 > [!NOTE]  
-> This step is only necessary for Camunda versions <= 8.2.x. Camunda 8.2.x includes Elasticsearch version 7.17.x. By default, these versions of Elasticsearch don't include the S3 snapshot repository by default.
+> This step is slightly different depending on the version of Elasticsearch. Camunda 8.2.x includes Elasticsearch version 7.17.x. By default, Elasticsearch versions before 8.2 don't include the S3 snapshot repository plugin by default. However, Elasticsearch 8.2.x and above already include the required s3 plugin. 
 
-Find the version of Elasticsearch that is currently installed in your environment. [This version matrix](https://helm.camunda.io/camunda-platform/version-matrix) lists the version of Elasticsearch installed by default for each version of Camunda. 
+Find the version of Elasticsearch that is currently installed in your environment. [This version matrix](https://helm.camunda.io/camunda-platform/version-matrix) lists the version of Elasticsearch installed by default for each version of Camunda.
 
-Then, add the following `initContainer` definition to your Camunda `values.yaml` file under the [elasticsearch](https://github.com/camunda/camunda-platform-helm/tree/main/charts/camunda-platform#elasticsearch-parameters) section: 
+## Elasticsearch 8.2.x and above
+
+Add the following `initScripts` definition to your Camunda `values.yaml` file under the [elasticsearch](https://github.com/camunda/camunda-platform-helm/tree/main/charts/camunda-platform#elasticsearch-parameters) section:
+
+```shell
+elasticsearch:
+  initScripts:
+    my_init_script.sh: |
+      #!/bin/sh
+      echo $AWS_KEY | elasticsearch-keystore add -f --stdin s3.client.default.access_key
+      echo $AWS_SECRET | elasticsearch-keystore add -f --stdin s3.client.default.secret_key
+  extraEnvVars:
+    - name: AWS_KEY
+      valueFrom:
+        secretKeyRef:
+          name: aws-credentials
+          key: key
+    - name: AWS_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: aws-credentials
+          key: secret
+```
+
+## Elasticsearch version before 8.2.x
+
+Add the following `initContainer` definition to your Camunda `values.yaml` file under the [elasticsearch](https://github.com/camunda/camunda-platform-helm/tree/main/charts/camunda-platform#elasticsearch-parameters) section:
 
 > [!INFO]  
-> Remember to change the version (`YOUR_VERSION` below) of the elasticsearch image to match the current version of your existing elasticsearch 
+> Remember to change the version (`YOUR_VERSION` below) of the elasticsearch image to match the current version of your existing elasticsearch
 
 ```shell
 elasticsearch:
@@ -182,6 +220,17 @@ zeebe:
           key: secret
 ```
 
+# Restore Steps
+
+1. Create snapshot repos
+
+```shell
+kubectl apply -f ./restore/create-snapshot-repos-job.yaml -n camunda
+```
+
+2. Delete indices
+
+kubectl apply -f restore/es-delete-all-indices.yaml          
 
 
 
